@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Möbius Drift</title>
+    <script src="https://cdn.jsdelivr.net/npm/p5@1.8.0/lib/p5.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #0a0a12;
+            font-family: 'Orbitron', sans-serif;
+        }
+        #controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(10, 10, 30, 0.8);
+            padding: 15px;
+            border-radius: 8px;
+            color: #e0e0ff;
+            max-width: 250px;
+            border: 1px solid #4a4a8a;
+            z-index: 100;
+        }
+        #controls h3 {
+            margin-top: 0;
+            color: #a0a0ff;
+            font-size: 1.1em;
+        }
+        .control-group {
+            margin-bottom: 10px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 0.9em;
+        }
+        input[type="range"] {
+            width: 100%;
+        }
+        #toggle-controls {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(10, 10, 30, 0.8);
+            color: #a0a0ff;
+            border: 1px solid #4a4a8a;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            cursor: pointer;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2em;
+        }
+        .value-display {
+            font-size: 0.8em;
+            color: #c0c0ff;
+            text-align: right;
+        }
+    </style>
+
+<base target="_self">
+
+
+    <div id="controls">
+        <h3>Möbius Drift Controls</h3>
+        <div class="control-group">
+            <label for="complexity">Complexity</label>
+            <input type="range" id="complexity" min="1" max="10" value="5">
+            <div class="value-display" id="complexity-value">5</div>
+        </div>
+        <div class="control-group">
+            <label for="speed">Speed</label>
+            <input type="range" id="speed" min="0" max="100" value="50">
+            <div class="value-display" id="speed-value">50</div>
+        </div>
+        <div class="control-group">
+            <label for="particles">Particles</label>
+            <input type="range" id="particles" min="100" max="2000" value="800">
+            <div class="value-display" id="particles-value">800</div>
+        </div>
+        <div class="control-group">
+            <label for="color-mode">Color Mode</label>
+            <input type="range" id="color-mode" min="0" max="3" value="1">
+            <div class="value-display" id="color-mode-value">Harmonic</div>
+        </div>
+    </div>
+    <button id="toggle-controls">⚙️</button>
+
+    <script>
+        const sketch = (p) => {
+            let particles = [];
+            const maxParticles = 2000;
+            let complexity = 5;
+            let speed = 50;
+            let colorMode = 1;
+            let time = 0;
+            let audioContext;
+            let oscillator;
+            let gainNode;
+            let isAudioActive = false;
+            let mousePos = p.createVector(0, 0);
+            let prevMousePos = p.createVector(0, 0);
+            let mouseVelocity = p.createVector(0, 0);
+            let controlsVisible = true;
+
+            p.setup = () => {
+                p.createCanvas(p.windowWidth, p.windowHeight);
+                p.colorMode(p.HSB, 360, 100, 100, 1);
+                p.noStroke();
+
+                // Initialize particles
+                for (let i = 0; i < 800; i++) {
+                    particles.push(createParticle());
+                }
+
+                // Setup controls
+                setupControls();
+
+                // Check if controls state was saved
+                const savedState = localStorage.getItem('controlsVisible');
+                if (savedState !== null) {
+                    controlsVisible = savedState === 'true';
+                    document.getElementById('controls').style.display = controlsVisible ? 'block' : 'none';
+                }
+            };
+
+            function setupControls() {
+                const complexitySlider = document.getElementById('complexity');
+                const speedSlider = document.getElementById('speed');
+                const particlesSlider = document.getElementById('particles');
+                const colorModeSlider = document.getElementById('color-mode');
+
+                complexitySlider.addEventListener('input', (e) => {
+                    complexity = parseInt(e.target.value);
+                    document.getElementById('complexity-value').textContent = complexity;
+                });
+
+                speedSlider.addEventListener('input', (e) => {
+                    speed = parseInt(e.target.value);
+                    document.getElementById('speed-value').textContent = speed;
+                });
+
+                particlesSlider.addEventListener('input', (e) => {
+                    const target = parseInt(e.target.value);
+                    adjustParticleCount(target);
+                    document.getElementById('particles-value').textContent = target;
+                });
+
+                colorModeSlider.addEventListener('input', (e) => {
+                    colorMode = parseInt(e.target.value);
+                    const modes = ['Monochrome', 'Harmonic', 'Complementary', 'Triadic'];
+                    document.getElementById('color-mode-value').textContent = modes[colorMode];
+                });
+
+                document.getElementById('toggle-controls').addEventListener('click', () => {
+                    controlsVisible = !controlsVisible;
+                    document.getElementById('controls').style.display = controlsVisible ? 'block' : 'none';
+                    localStorage.setItem('controlsVisible', controlsVisible);
+                });
+            }
+
+            function adjustParticleCount(target) {
+                target = p.constrain(target, 100, maxParticles);
+                const diff = target - particles.length;
+                
+                if (diff > 0) {
+                    for (let i = 0; i < diff; i++) {
+                        if (particles.length < maxParticles) {
+                            particles.push(createParticle());
+                        }
+                    }
+                } else if (diff < 0) {
+                    particles.splice(0, -diff);
+                }
+            }
+
+            function createParticle() {
+                return {
+                    position: p.createVector(p.random(p.width), p.random(p.height)),
+                    velocity: p.createVector(p.random(-1, 1), p.random(-1, 1)),
+                    radius: p.random(1, 3),
+                    hue: p.random(360),
+                    life: p.random(100, 200),
+                    maxLife: p.random(100, 200),
+                    angle: p.random(p.TWO_PI),
+                    angularVel: p.random(-0.01, 0.01)
+                };
+            }
+
+            p.draw = () => {
+                time += 0.01 * (speed / 50);
+                p.background(0, 0, 10, 0.1);
+
+                // Update mouse velocity
+                prevMousePos.set(mousePos);
+                mousePos.set(p.mouseX, p.mouseY);
+                mouseVelocity = p5.Vector.sub(mousePos, prevMousePos).mult(0.1);
+
+                // Update and draw particles
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    const particle = particles[i];
+                    
+                    // Apply Möbius transformation
+                    applyMobiusTransformation(particle);
+                    
+                    // Update particle properties
+                    particle.life--;
+                    if (particle.life <= 0) {
+                        particles[i] = createParticle();
+                        continue;
+                    }
+                    
+                    // Draw particle
+                    drawParticle(particle);
+                }
+
+                // Adaptive quality - reduce particle count if frame rate drops
+                if (p.frameRate() < 30 && particles.length > 100) {
+                    particles.splice(0, 10);
+                }
+            };
+
+            function applyMobiusTransformation(particle) {
+                // Complex number representation of position
+                const z = new Complex(
+                    (particle.position.x - p.width/2) / (p.width/2),
+                    (particle.position.y - p.height/2) / (p.height/2)
+                );
+                
+                // Möbius transformation parameters based on mouse and time
+                const a = new Complex(Math.cos(time * 0.5), Math.sin(time * 0.3));
+                const b = new Complex(mouseVelocity.x * 0.01, mouseVelocity.y * 0.01);
+                const c = new Complex(Math.sin(time * 0.2), Math.cos(time * 0.4));
+                const d = new Complex(1, 0);
+                
+                // Apply Möbius transformation: (az + b)/(cz + d)
+                const numerator = a.multiply(z).add(b);
+                const denominator = c.multiply(z).add(d);
+                const transformed = numerator.divide(denominator);
+                
+                // Map back to screen coordinates
+                particle.position.x = (transformed.re * (p.width/2)) + p.width/2;
+                particle.position.y = (transformed.im * (p.height/2)) + p.height/2;
+                
+                // Add some noise for organic movement
+                particle.position.x += p.noise(particle.life * 0.1, time * 0.1) * 2 - 1;
+                particle.position.y += p.noise(particle.life * 0.1, time * 0.1 + 100) * 2 - 1;
+                
+                // Rotate based on transformation
+                particle.angle += particle.angularVel * (speed / 50);
+            }
+
+            function drawParticle(particle) {
+                const lifeRatio = particle.life / particle.maxLife;
+                let hue;
+                
+                // Different color modes
+                switch (colorMode) {
+                    case 0: // Monochrome
+                        hue = 240;
+                        break;
+                    case 1: // Harmonic
+                        hue = (particle.hue + time * 20) % 360;
+                        break;
+                    case 2: // Complementary
+                        hue = (particle.hue + time * 20 + 180 * p.floor(p.random(2))) % 360;
+                        break;
+                    case 3: // Triadic
+                        hue = (particle.hue + time * 20 + 120 * p.floor(p.random(3))) % 360;
+                        break;
+                }
+                
+                const sat = 80 + p.noise(particle.life * 0.01) * 20;
+                const bri = 60 + p.noise(particle.life * 0.01 + 100) * 40;
+                
+                p.fill(hue, sat, bri, lifeRatio * 0.8);
+                
+                // Draw particle with rotation
+                p.push();
+                p.translate(particle.position.x, particle.position.y);
+                p.rotate(particle.angle);
+                
+                // Draw different shapes based on complexity
+                if (complexity > 7) {
+                    p.beginShape();
+                    for (let i = 0; i < 5; i++) {
+                        const angle = p.TWO_PI * i / 5;
+                        const r = particle.radius * (0.5 + 0.5 * p.noise(i, time * 0.1));
+                        p.vertex(r * p.cos(angle), r * p.sin(angle));
+                    }
+                    p.endShape(p.CLOSE);
+                } else if (complexity > 5) {
+                    p.rect(0, 0, particle.radius * 2, particle.radius * 2);
+                } else {
+                    p.circle(0, 0, particle.radius * 2);
+                }
+                
+                p.pop();
+            }
+
+            p.mousePressed = () => {
+                if (!isAudioActive) {
+                    initAudio();
+                    isAudioActive = true;
+                }
+            };
+
+            p.mouseReleased = () => {
+                if (isAudioActive) {
+                    stopAudio();
+                    isAudioActive = false;
+                }
+            };
+
+            function initAudio() {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                oscillator = audioContext.createOscillator();
+                gainNode = audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.value = 220;
+                gainNode.gain.value = 0;
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                
+                oscillator.start();
+                
+                // Smooth fade in
+                gainNode.gain.linearRampToValueAtTime(0.1, audioContext.currentTime + 0.5);
+            }
+
+            function stopAudio() {
+                if (gainNode) {
+                    gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.5);
+                    setTimeout(() => {
+                        if (oscillator) {
+                            oscillator.stop();
+                            oscillator.disconnect();
+                            oscillator = null;
+                        }
+                        gainNode.disconnect();
+                        gainNode = null;
+                    }, 500);
+                }
+            }
+
+            p.windowResized = () => {
+                p.resizeCanvas(p.windowWidth, p.windowHeight);
+            };
+
+            // Complex number class for Möbius transformations
+            class Complex {
+                constructor(re, im) {
+                    this.re = re;
+                    this.im = im;
+                }
+                
+                add(other) {
+                    return new Complex(this.re + other.re, this.im + other.im);
+                }
+                
+                subtract(other) {
+                    return new Complex(this.re - other.re, this.im - other.im);
+                }
+                
+                multiply(other) {
+                    return new Complex(
+                        this.re * other.re - this.im * other.im,
+                        this.re * other.im + this.im * other.re
+                    );
+                }
+                
+                divide(other) {
+                    const denom = other.re * other.re + other.im * other.im;
+                    return new Complex(
+                        (this.re * other.re + this.im * other.im) / denom,
+                        (this.im * other.re - this.re * other.im) / denom
+                    );
+                }
+                
+                magnitude() {
+                    return Math.sqrt(this.re * this.re + this.im * this.im);
+                }
+            }
+        };
+
+        new p5(sketch);
+    </script>
+
+              
+          
+                
+          
+              
